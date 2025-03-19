@@ -79,6 +79,10 @@ func (m Message) ParseContent() []MessageContent {
 	return nil
 }
 
+func (m Message) GetToolCalls() []Tool {
+	return m.ToolCalls
+}
+
 type ImageURL struct {
 	Url    string `json:"url,omitempty"`
 	Detail string `json:"detail,omitempty"`

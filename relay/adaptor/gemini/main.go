@@ -34,8 +34,38 @@ var mimeTypeMap = map[string]string{
 	"text":        "text/plain",
 }
 
+func cleanNullTypes(data interface{}) interface{} {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		if len(v) == 1 && v["type"] == "null" {
+			return nil
+		}
+		for key, val := range v {
+			if cleanedVal := cleanNullTypes(val); cleanedVal == nil {
+				delete(v, key)
+			} else {
+				v[key] = cleanedVal
+			}
+		}
+	case []interface{}:
+		var cleanedSlice []interface{}
+		for _, item := range v {
+			cleanedItem := cleanNullTypes(item)
+			if cleanedItem != nil {
+				cleanedSlice = append(cleanedSlice, cleanedItem)
+			}
+		}
+		return cleanedSlice
+	default:
+		// No action needed for other types
+	}
+	return data
+}
+
 // Setting safety to the lowest possible values since Gemini is already powerless enough
 func ConvertRequest(textRequest model.GeneralOpenAIRequest) *ChatRequest {
+	// reqText, _ := json.MarshalIndent(textRequest, "", "  ")
+	// fmt.Printf("GeneralOpenAIRequest: %+v", string(reqText))
 	geminiRequest := ChatRequest{
 		Contents: make([]ChatContent, 0, len(textRequest.Messages)),
 		SafetySettings: []ChatSafetySettings{
@@ -78,6 +108,7 @@ func ConvertRequest(textRequest model.GeneralOpenAIRequest) *ChatRequest {
 	if textRequest.Tools != nil {
 		functions := make([]model.Function, 0, len(textRequest.Tools))
 		for _, tool := range textRequest.Tools {
+			tool.Function.Parameters = cleanNullTypes(tool.Function.Parameters)
 			functions = append(functions, tool.Function)
 		}
 		geminiRequest.Tools = []ChatTools{
@@ -124,14 +155,26 @@ func ConvertRequest(textRequest model.GeneralOpenAIRequest) *ChatRequest {
 				})
 			}
 		}
+		if parts == nil {
+			openaiToolCalls := message.GetToolCalls()
+			for _, tool := range openaiToolCalls {
+				var args map[string]interface{}
+				_ = json.Unmarshal([]byte(tool.Function.Arguments.(string)), &args)
+				parts = append(parts, Part{
+					FunctionCall: &FunctionCall{
+						FunctionName: tool.Function.Name,
+						Arguments:    args,
+					},
+				})
+			}
+		}
 		content.Parts = parts
 
-		// there's no assistant role in gemini and API shall vomit if Role is not user or model
 		if content.Role == "assistant" {
+			// there's no assistant role in gemini and API shall vomit if Role is not user or model
 			content.Role = "model"
-		}
-		// Converting system prompt to prompt from user for the same reason
-		if content.Role == "system" {
+		} else if content.Role == "system" {
+			// Converting system prompt to prompt from user for the same reason
 			shouldAddDummyModelMessage = true
 			if IsModelSupportSystemInstruction(textRequest.Model) {
 				geminiRequest.SystemInstruction = &content
@@ -140,6 +183,8 @@ func ConvertRequest(textRequest model.GeneralOpenAIRequest) *ChatRequest {
 			} else {
 				content.Role = "user"
 			}
+		} else {
+			content.Role = "user"
 		}
 
 		geminiRequest.Contents = append(geminiRequest.Contents, content)
@@ -257,6 +302,7 @@ func responseGeminiChat2OpenAI(response *ChatResponse) *openai.TextResponse {
 		if len(candidate.Content.Parts) > 0 {
 			if candidate.Content.Parts[0].FunctionCall != nil {
 				choice.Message.ToolCalls = getToolCalls(&candidate)
+				choice.FinishReason = "tool_calls"
 			} else {
 				var builder strings.Builder
 				for _, part := range candidate.Content.Parts {
@@ -367,6 +413,7 @@ func Handler(c *gin.Context, resp *http.Response, promptTokens int, modelName st
 	}
 	var geminiResponse ChatResponse
 	err = json.Unmarshal(responseBody, &geminiResponse)
+	logger.Debugf(c, "Gemini response: %s", string(responseBody))
 	if err != nil {
 		return openai.ErrorWrapper(err, "unmarshal_response_body_failed", http.StatusInternalServerError), nil
 	}
