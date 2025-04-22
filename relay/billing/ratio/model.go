@@ -574,6 +574,7 @@ var ModelRatio = map[string]float64{
 	"openai/o1-preview-2024-09-12":                    30.0,
 	"openai/o3-mini":                                  2.2,
 	"openai/o3-mini-high":                             2.2,
+	"openai/gpt-4.1":                                  4.0,
 	"openchat/openchat-7b":                            0.0275,
 	"openchat/openchat-7b:free":                       0.0,
 	"openrouter/auto":                                 -500000.0,

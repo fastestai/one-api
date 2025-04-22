@@ -186,6 +186,7 @@ var ModelList = []string{
 	"openai/o1-preview-2024-09-12",
 	"openai/o3-mini",
 	"openai/o3-mini-high",
+	"openai/gpt-4.1",
 	"openchat/openchat-7b",
 	"openchat/openchat-7b:free",
 	"openrouter/auto",
